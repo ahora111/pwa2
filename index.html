@@ -1980,6 +1980,20 @@ function saveLocal(){
 }
 var _lastSaveLocalCaller = "?";
 var _pendingUploadsCount = 0;
+// ردیابی اینکه آخرین نسخه‌ی محصولات که با Firebase sync شده (آپلود یا دانلود) چی بوده.
+// اگه از آخرین sync چیزی توی APP.products عوض نشده باشه، دیگه نباید uploadProductsJB
+// دوباره صدا زده بشه — چون این باعث میشه یه تغییر meta بی‌ربط (بازدید/سفارش/...)
+// کل لیست محصولات محلی (که ممکنه قدیمی/stale باشه، مثلاً یه تب دیگه محصول جدید اضافه کرده)
+// رو overwrite کنه روی Firebase و محصولات جدید پاک بشن.
+var _lastSyncedProductsJSON = null;
+function _productsChangedSinceLastSync(){
+  try{
+    return JSON.stringify(APP.products) !== _lastSyncedProductsJSON;
+  }catch(e){ return true; } // اگه مطمئن نیستیم، برای احتیاط بگیم عوض شده
+}
+function _markProductsSynced(){
+  try{ _lastSyncedProductsJSON = JSON.stringify(APP.products); }catch(e){}
+}
 function autoCloudSync(){
   if(!CFG.fbApiKey)return;
   // از همین لحظه (نه فقط موقع شکست شبکه) جلوی هر downloadی رو بگیر،
@@ -2003,15 +2017,18 @@ function autoCloudSync(){
       scheduleSyncRetry();
       return;
     }
-    _pendingUploadsCount = 1 + (APP.isAdmin?1:0);
+    var shouldUploadProducts = APP.isAdmin && _productsChangedSinceLastSync();
+    _pendingUploadsCount = 1 + (shouldUploadProducts?1:0);
     function doneOne(){
       _pendingUploadsCount--;
       if(_pendingUploadsCount<=0) _blockDownloadUntilFlushed = false;
     }
     uploadMeta(true, doneOne);
-    if(APP.isAdmin){
+    if(shouldUploadProducts){
       logSync("🔔 autoCloudSync: آپلود محصولات آدمین شروع میشه (دلیل تریگر: "+triggerReason+")");
       uploadProductsJB(true, doneOne, triggerReason);
+    } else if(APP.isAdmin){
+      logSync("⏭️ آپلود محصولات لازم نبود — از آخرین sync چیزی توی محصولات عوض نشده (تریگر: "+triggerReason+")");
     }
   },1500);
 }
@@ -3638,13 +3655,23 @@ function uploadProductsJB(s,doneCb,reason){
   fbGet("products", function(remoteBefore){
     var remoteCount = (remoteBefore && remoteBefore.products) ? remoteBefore.products.length : null;
     if(remoteCount !== null && remoteCount > localCount){
-      logSync("⚠️ هشدار: Firebase الان "+toPe(remoteCount)+" کالا داره ولی داریم "+toPe(localCount)+" تا آپلود می‌کنیم (احتمال از دست رفتن داده!)");
-    } else {
-      logSync("ℹ️ Firebase قبل از آپلود: "+(remoteCount===null?"نامشخص":toPe(remoteCount))+" کالا");
+      // این تب/سشن یه نسخه‌ی قدیمی‌تر از محصولات توی حافظه داره (مثلاً یه تب دیگه
+      // محصول جدید اضافه کرده و این تب هنوز اون رو نگرفته). اگه همینجا overwrite کنیم،
+      // دقیقاً همون باگیه که باعث میشه محصولات جدید بعد از یه مدت پاک بشن.
+      // پس به‌جای overwrite کورکورانه، آپلود رو متوقف می‌کنیم و اول از Firebase
+      // به‌روز می‌شیم؛ تغییر محلی (اگه واقعی بود) بعد از sync دوباره اعمال/آپلود میشه.
+      logSync("🛑 آپلود لغو شد: Firebase الان "+toPe(remoteCount)+" کالا داره ولی محلی فقط "+toPe(localCount)+" تا داره — برای جلوگیری از پاک شدن داده، اول دانلود می‌کنیم");
+      _blockDownloadUntilFlushed = false; // اجازه بده downloadProductsJB واقعاً اجرا بشه
+      downloadProductsJB(true);
+      if(!s)toast("داده‌های جدیدتری روی سرور بود — صفحه با آخرین نسخه هماهنگ شد. لطفاً تغییرتون رو دوباره بررسی/ثبت کنید.",1);
+      if(doneCb) doneCb();
+      return;
     }
+    logSync("ℹ️ Firebase قبل از آپلود: "+(remoteCount===null?"نامشخص":toPe(remoteCount))+" کالا");
     var data={shopName:CFG.shopName,products:APP.products,updatedAt:Date.now()};
     fbSet("products",data,function(){
       logSync("✅ آپلود محصولات تمام شد — "+toPe(localCount)+" کالا نوشته شد روی Firebase");
+      _markProductsSynced();
       if(!s)toast("محصولات آپلود شد ✅");
       if(doneCb) doneCb();
     });
@@ -3674,6 +3701,7 @@ function downloadProductsJB(s){
         if(localImgMap[p.id]&&localImgMap[p.id].length>p.images.length)p.images=localImgMap[p.id];
         return p;
       });
+      _markProductsSynced();
       saveLocal();safeRenderAll(false);
       logSync("✅ دانلود شد — قبل: "+toPe(beforeCount)+" | بعد: "+toPe(APP.products.length)+
         (added.length?" | جدید: "+toPe(added.length):"")+
@@ -3879,6 +3907,7 @@ function applyRemoteProducts(d){
     if(localImgMap[p.id] && localImgMap[p.id].length > p.images.length) p.images = localImgMap[p.id];
     return p;
   });
+  _markProductsSynced();
   saveLocal();
   logSync("📡 SSE محصولات #"+_applyRemoteProductsEventCount+": "+toPe(beforeCount)+" → "+toPe(APP.products.length)+
     (added.length?" | جدید: "+toPe(added.length):"")+
