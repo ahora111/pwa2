@@ -1504,9 +1504,11 @@ html[data-theme="dark"] .modal-overlay{background:rgba(0,0,0,.7)}
       <div class="cart-summary-row total"><span>📝 جمع چکی:</span><span class="price-check" id="cartTotalCheck">۰</span></div>
     </div>
     <div class="cart-customer-section" id="cartCustomerSection" style="display:none">
-      <label>👤 مشتری (صاحب فروشگاه) *</label>
-      <input type="text" id="cartCustomerName" placeholder="نام صاحب فروشگاه" list="cartCustomerDatalist">
-      <datalist id="cartCustomerDatalist"></datalist>
+      <label>👤 مشتری (باید از لیست انتخاب بشه) *</label>
+      <div style="display:flex;gap:6px;align-items:center">
+        <select id="cartCustomerSelect" class="edit-input" style="flex:1" onchange="onCartCustomerSelectChange()"></select>
+        <button type="button" class="btn btn-purple btn-sm" onclick="openNewCustomerFromCart()" style="white-space:nowrap">➕ جدید</button>
+      </div>
       <label>📞 تلفن</label>
       <input type="tel" id="cartCustomerPhone" placeholder="09..." inputmode="numeric">
       <label>💳 روش پرداخت</label>
@@ -2433,13 +2435,15 @@ function renderAdminCustomers(){
   if(q)all=all.filter(function(c){return normDigits(c.shop||"").toLowerCase().includes(q)||normDigits(c.phone||"").includes(q)||normDigits(c.visitor||"").toLowerCase().includes(q)});
   $("adminCustomersList").innerHTML=all.length?all.map(function(c){return renderCustomerCard(c,true)}).join(""):'<div class="empty-state"><div class="big">📞</div><div>خالی</div></div>';
 }
-function openAddCustomer(){
+function openAddCustomer(fromCart){
+  _customerModalFromCart=!!fromCart;
   APP.editingCustomerId=null;
   $("customerModalTitle").textContent="➕ مشتری";
   $("customerShop").value="";$("customerOwner").value="";$("customerPhone").value="";$("customerNote").value="";
   $("modalCustomer").classList.add("show");
 }
 function editCustomer(id){
+  _customerModalFromCart=false;
   var c=APP.customers.find(function(x){return x.id===id});if(!c)return;
   APP.editingCustomerId=id;
   $("customerModalTitle").textContent="✏️ ویرایش";
@@ -2450,6 +2454,7 @@ function saveCustomer(){
   var shop=$("customerShop").value.trim(),phone=$("customerPhone").value.trim(),owner=$("customerOwner").value.trim();
   if(!shop){toast("نام؟",1);return}
   if(phone&&!isValidPhone(phone)){toast("شماره تلفن نامعتبر است (۱۰ یا ۱۱ رقم)",1);return}
+  var newlyCreatedId=null;
   if(APP.editingCustomerId){
     var nowC=new Date().toISOString();
     APP.customers.forEach(function(c){if(c.id===APP.editingCustomerId){c.shop=shop;c.owner=owner;c.phone=phone;c.note=$("customerNote").value.trim();c.updatedAt=nowC}});
@@ -2464,12 +2469,21 @@ function saveCustomer(){
       if(!confirm("⚠️ مشتری «"+(dup.owner||dup.shop)+"» با همین صاحب یا شماره قبلاً ثبت شده.\nباز هم ذخیره شود؟"))return;
     }
     var nowC2=new Date().toISOString();
-    APP.customers.push({id:"c"+Date.now(),shop:shop,owner:owner,phone:phone,note:$("customerNote").value.trim(),visitor:APP.currentVisitor,createdAt:nowC2,updatedAt:nowC2,lastVisit:null});
+    newlyCreatedId="c"+Date.now();
+    APP.customers.push({id:newlyCreatedId,shop:shop,owner:owner,phone:phone,note:$("customerNote").value.trim(),visitor:APP.currentVisitor,createdAt:nowC2,updatedAt:nowC2,lastVisit:null});
   }
   saveLocal();$("modalCustomer").classList.remove("show");
   if(APP.currentMode==="customers")renderMyCustomers();
   if(APP.currentMode==="admin"&&APP.currentAdminTab==="customers")renderAdminCustomers();
   toast("ذخیره شد ✅");
+  if(_customerModalFromCart&&newlyCreatedId){
+    _customerModalFromCart=false;
+    var nc=APP.customers.find(function(x){return x.id===newlyCreatedId});
+    populateCartCustomerSelect(newlyCreatedId);
+    $("cartCustomerPhone").value=nc?(nc.phone||""):"";
+    $("modalCart").classList.add("show");
+    toast("مشتری جدید برای این فاکتور انتخاب شد ✅");
+  }
 }
 function deleteCustomer(id){
   if(!confirm("حذف؟"))return;
@@ -2727,19 +2741,38 @@ function cartQty(pid){var q=0;APP.cart.forEach(function(x){if(x.pid===pid)q=x.qt
 function showCart(){
   if(!APP.cart.length){toast("سبد خالی",1);return}
   renderCart();
-  var h="";APP.customers.filter(function(c){return c.visitor===APP.currentVisitor}).forEach(function(c){h+='<option value="'+esc(c.owner||c.shop)+'">'+esc(c.owner||c.shop)+'</option>'});
-  $("cartCustomerDatalist").innerHTML=h;
+  populateCartCustomerSelect("");
+  $("cartCustomerPhone").value="";
   var cashRadio=document.querySelector('input[name="payMethod"][value="cash"]');if(cashRadio)cashRadio.checked=true;
   $("cartSetReminder").checked=false;$("cartReminderBox").style.display="none";$("cartReminderNote").value="";
   fillJDateSelects("cartRem",null);
   $("modalCart").classList.add("show");
 }
-function onCartCustomerNameChange(){
-  var v=$("cartCustomerName").value.trim();
-  if(!v)return;
-  var c=APP.customers.find(function(x){return x.visitor===APP.currentVisitor&&(x.owner===v||x.shop===v)});
-  if(c&&c.phone)$("cartCustomerPhone").value=c.phone;
-  else $("cartCustomerPhone").value="";
+// ── انتخاب مشتری در سبد (فقط از لیست مشتری‌های موجود) ──────────────────
+var _customerModalFromCart=false;
+function populateCartCustomerSelect(selectedId){
+  var sel=$("cartCustomerSelect");if(!sel)return;
+  var list=APP.customers.filter(function(c){return !c.deleted&&c.visitor===APP.currentVisitor});
+  var h='<option value="">-- انتخاب مشتری --</option>';
+  list.forEach(function(c){
+    var label=(c.owner?c.owner+" — ":"")+(c.shop||"")+(c.phone?" ("+c.phone+")":"");
+    h+='<option value="'+c.id+'"'+(c.id===selectedId?" selected":"")+'>'+esc(label)+'</option>';
+  });
+  h+='<option value="__new__">➕ ثبت مشتری جدید...</option>';
+  sel.innerHTML=h;
+}
+function onCartCustomerSelectChange(){
+  var sel=$("cartCustomerSelect");
+  if(sel.value==="__new__"){
+    sel.value="";
+    openNewCustomerFromCart();
+    return;
+  }
+  var c=APP.customers.find(function(x){return x.id===sel.value});
+  $("cartCustomerPhone").value=c?(c.phone||""):"";
+}
+function openNewCustomerFromCart(){
+  openAddCustomer(true);
 }
 function hideCart(){$("modalCart").classList.remove("show")}
 function renderCart(){
@@ -2764,10 +2797,24 @@ function renderCart(){
 // ORDER + INVOICE
 function finalizeOrder(){
   if(!APP.cart.length){toast("خالی",1);return}
-  var cn=$("cartCustomerName").value.trim(),cp=$("cartCustomerPhone").value.trim(),nt=$("cartOrderNote").value.trim();
-  if(!cn){toast("نام مشتری لازمه است",1);return}
+  var selId=$("cartCustomerSelect").value;
+  if(!selId||selId==="__new__"){
+    toast("⚠️ باید یک مشتری از لیست انتخاب کنی یا مشتری جدید تعریف کنی",1);
+    return;
+  }
+  var custObj=APP.customers.find(function(c){return c.id===selId&&!c.deleted&&c.visitor===APP.currentVisitor});
+  if(!custObj){
+    toast("⚠️ مشتری انتخاب‌شده دیگه معتبر نیست، دوباره انتخاب کن",1);
+    populateCartCustomerSelect("");
+    return;
+  }
+  var cn=custObj.shop||custObj.owner||"";
+  var cp=$("cartCustomerPhone").value.trim(),nt=$("cartOrderNote").value.trim();
   if(!cp){toast("شماره تلفن مشتری لازمه است",1);return}
   if(!isValidPhone(cp)){toast("شماره تلفن نامعتبر است (۱۰ یا ۱۱ رقم)",1);return}
+  if(custObj.phone&&normPhone(cp)!==normPhone(custObj.phone)){
+    if(!confirm("📞 شماره واردشده ("+cp+") با شماره‌ی ثبت‌شده‌ی «"+cn+"» ("+custObj.phone+") فرق داره.\n\nاین فاکتور فقط همین یک بار با شماره‌ی جدید ارسال می‌شه؛ شماره‌ی مشتری در لیست تغییر نمی‌کنه.\n\nادامه بدم؟")){return}
+  }
   var pm=document.querySelector('input[name="payMethod"]:checked');
   var paymentMethod=pm?pm.value:"cash";
   var tc=0,tk=0,tq=0,items=[];
@@ -2781,56 +2828,29 @@ function finalizeOrder(){
     o=APP.orders.find(function(x){return x.id===APP.editingOrderId});
     if(!o){APP.editingOrderId=null;toast("فاکتور یافت نشد",1);return}
     var nowE=new Date().toISOString();
-    o.cust=cn;o.phone=cp;o.note=nt;o.items=items;o.tc=tc;o.tk=tk;o.tq=tq;o.paymentMethod=paymentMethod;o.editedAt=nowE;o.updatedAt=nowE;
+    o.cust=cn;o.custId=custObj.id;o.phone=cp;o.note=nt;o.items=items;o.tc=tc;o.tk=tk;o.tq=tq;o.paymentMethod=paymentMethod;o.editedAt=nowE;o.updatedAt=nowE;
   }else{
     var nowO=new Date().toISOString();
-    o={id:"o"+Date.now(),num:genInvoiceNo(),vis:APP.currentVisitor,cust:cn,phone:cp,note:nt,items:items,tc:tc,tk:tk,tq:tq,paymentMethod:paymentMethod,at:nowO,createdAt:nowO,updatedAt:nowO};
+    o={id:"o"+Date.now(),num:genInvoiceNo(),vis:APP.currentVisitor,cust:cn,custId:custObj.id,phone:cp,note:nt,items:items,tc:tc,tk:tk,tq:tq,paymentMethod:paymentMethod,at:nowO,createdAt:nowO,updatedAt:nowO};
     APP.orders.push(o);
   }
   APP.lastInvoice=o;
 
-  var custId=null;
-  var isNewCustomer=false;
-  if(cp){
-    var exByPhone=null,exByName=null;
-    APP.customers.forEach(function(c){
-      if(normPhone(c.phone)===normPhone(cp)&&c.visitor===APP.currentVisitor)exByPhone=c;
-    });
-    APP.customers.forEach(function(c){
-      if((c.shop===cn||c.owner===cn)&&c.visitor===APP.currentVisitor&&!exByPhone)exByName=c;
-    });
-    if(exByPhone){
-      exByPhone.lastVisit=o.at;exByPhone.updatedAt=o.at;custId=exByPhone.id;
-    }else if(exByName){
-      var userChoice=confirm("⚠️ مشتری «"+cn+"» قبلاً با شماره "+exByName.phone+" ثبت شده.\n\nتأیید کن → مشتری جدید ثبت بشه با این شماره جدید\nرد کن → فاکتور فقط برای این بار با شماره جدید ارسال بشه (مشتری قبلی تغییر نمی‌کنه)");
-      if(userChoice){
-        custId="c"+Date.now();isNewCustomer=true;
-        APP.customers.push({id:custId,shop:cn,owner:"",phone:cp,note:"",visitor:APP.currentVisitor,createdAt:o.at,updatedAt:o.at,lastVisit:o.at});
-        toast("✅ مشتری جدید اضافه شد");
-      }else{
-        exByName.lastVisit=o.at;exByName.updatedAt=o.at;custId=exByName.id;
-        toast("ℹ️ فاکتور با شماره جدید ثبت شد (مشتری قبلی)");
-      }
-    }else if(cn){
-      if(!confirm("❓ مشتری جدید است؟\nنام: "+cn+"\nتلفن: "+cp+"\n\nثبت کنم؟")){return}
-      custId="c"+Date.now();isNewCustomer=true;
-      APP.customers.push({id:custId,shop:cn,owner:"",phone:cp,note:"",visitor:APP.currentVisitor,createdAt:o.at,updatedAt:o.at,lastVisit:o.at});
-      toast("✅ مشتری جدید اضافه شد");
-    }
-  }else{
-    APP.customers.forEach(function(c){if(c.shop===cn&&c.visitor===APP.currentVisitor)custId=c.id});
-  }
+  // مشتری همون کسیه که از لیست انتخاب شده — فقط تاریخ آخرین مراجعه‌اش آپدیت می‌شه
+  custObj.lastVisit=o.at;custObj.updatedAt=o.at;
 
   if($("cartSetReminder").checked){
     var crNote=$("cartReminderNote").value.trim();
     var crDate=jDateSelectToISO("cartRem");
     if(crNote&&crDate){
       var nowCR=new Date().toISOString();
-      APP.reminders.push({id:"r"+Date.now()+Math.random(),visitor:APP.currentVisitor,customerId:custId,shop:cn,phone:cp,text:crNote,dueDate:crDate,completed:false,createdAt:nowCR,updatedAt:nowCR});
+      APP.reminders.push({id:"r"+Date.now()+Math.random(),visitor:APP.currentVisitor,customerId:custObj.id,shop:cn,phone:cp,text:crNote,dueDate:crDate,completed:false,createdAt:nowCR,updatedAt:nowCR});
     }
   }
 
-  APP.cart=[];$("cartCustomerName").value="";$("cartCustomerPhone").value="";$("cartOrderNote").value="";
+  APP.cart=[];
+  populateCartCustomerSelect("");
+  $("cartCustomerPhone").value="";$("cartOrderNote").value="";
   $("cartSetReminder").checked=false;$("cartReminderBox").style.display="none";$("cartReminderNote").value="";
   var cashRadio2=document.querySelector('input[name="payMethod"][value="cash"]');if(cashRadio2)cashRadio2.checked=true;
   APP.editingOrderId=null;$("finalizeOrderBtn").textContent="🧾 فاکتور";
@@ -3017,10 +3037,13 @@ function editOrder(id){
   APP.cart=o.items.map(function(it){return{pid:it.pid||null,name:it.name,cp:it.cp,kp:it.kp,qty:it.qty}});
   saveLocal();updateCartUI();
   renderCart();
-  var h="";APP.customers.filter(function(c){return c.visitor===APP.currentVisitor}).forEach(function(c){h+='<option value="'+esc(c.shop)+'">'});
-  $("cartCustomerDatalist").innerHTML=h;
-  $("cartCustomerName").value=o.cust||"";
-  $("cartCustomerPhone").value=o.phone||"";
+  var matchCust=null;
+  if(o.custId)matchCust=APP.customers.find(function(c){return c.id===o.custId&&!c.deleted});
+  if(!matchCust&&o.phone)matchCust=APP.customers.find(function(c){return !c.deleted&&c.visitor===o.vis&&c.phone&&normPhone(c.phone)===normPhone(o.phone)});
+  if(!matchCust&&o.cust)matchCust=APP.customers.find(function(c){return !c.deleted&&c.visitor===o.vis&&(c.shop===o.cust||c.owner===o.cust)});
+  populateCartCustomerSelect(matchCust?matchCust.id:"");
+  $("cartCustomerPhone").value=o.phone||(matchCust?matchCust.phone:"")||"";
+  if(!matchCust)toast("⚠️ مشتری این فاکتور در لیست پیدا نشد؛ یکی رو انتخاب کن",1);
   $("cartOrderNote").value=o.note||"";
   $("cartSetReminder").checked=false;$("cartReminderBox").style.display="none";$("cartReminderNote").value="";
   fillJDateSelects("cartRem",null);
@@ -4312,17 +4335,21 @@ window.onload=function(){
   $("customerSearch").oninput=renderMyCustomers;
   // جلالی date filter listeners - از onchange در HTML خود select‌ها استفاده می‌شه
   $("adminCustomerSearch").oninput=renderAdminCustomers;
-  $("addCustomerBtn").onclick=openAddCustomer;
+  $("addCustomerBtn").onclick=function(){openAddCustomer(false)};
   $("saveCustomerBtn").onclick=saveCustomer;
-  $("cancelCustomerBtn").onclick=function(){$("modalCustomer").classList.remove("show")};
+  $("cancelCustomerBtn").onclick=function(){
+    $("modalCustomer").classList.remove("show");
+    if(_customerModalFromCart){
+      _customerModalFromCart=false;
+      $("modalCart").classList.add("show");
+    }
+  };
 
   $("fabCart").onclick=showCart;
   $("closeCartBtn").onclick=cancelCart;
   $("goToProductsFromCartBtn").onclick=function(){hideCart();goProducts();toast("سبد فعاله، کالا انتخاب کن 🛒")};
   $("clearCartBtn").onclick=clearCart;
   $("finalizeOrderBtn").onclick=finalizeOrder;
-  $("cartCustomerName").oninput=onCartCustomerNameChange;
-  $("cartCustomerName").onchange=onCartCustomerNameChange;
   $("cartSetReminder").onchange=function(){$("cartReminderBox").style.display=this.checked?"block":"none"};
 
   $("downloadInvoiceImgBtn").onclick=downloadInvoiceImage;
