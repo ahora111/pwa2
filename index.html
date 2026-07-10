@@ -331,9 +331,9 @@ tbody tr:hover{background:var(--accent-soft)}
 .map-filter{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
 .map-filter select{background:var(--sf2);border:1.5px solid var(--bd);color:var(--tx);padding:9px 12px;border-radius:8px;font-size:.82rem;outline:none;flex:1;min-width:140px;min-height:38px}
 
-.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:14px}
-.stat-card{background:var(--sf);border:1px solid var(--bd);border-radius:14px;padding:14px;text-align:center;box-shadow:var(--shadow)}
-.stat-value{font-size:1.5rem;font-weight:800;color:var(--blue)}
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:14px}
+.stat-card{background:var(--sf);border:1px solid var(--bd);border-radius:14px;padding:12px 6px;text-align:center;box-shadow:var(--shadow);overflow:hidden;min-width:0;box-sizing:border-box}
+.stat-value{font-size:clamp(.95rem,4.5vw,1.5rem);font-weight:800;color:var(--blue);overflow-wrap:break-word;word-break:break-word;line-height:1.25;max-width:100%}
 .stat-label{font-size:.72rem;color:var(--tx3);margin-top:4px;font-weight:500}
 
 .tab-bar{display:flex;gap:6px;margin-bottom:14px;border-bottom:2px solid var(--bd);padding-bottom:8px;overflow-x:auto;-webkit-overflow-scrolling:touch}
@@ -349,8 +349,8 @@ tbody tr:hover{background:var(--accent-soft)}
 .report-bar-fill{height:100%;border-radius:10px;transition:width .5s;display:flex;align-items:center;justify-content:flex-end;padding-right:6px;font-size:.6rem;color:#fff;font-weight:700;min-width:20px}
 .report-bar-value{font-size:.75rem;color:var(--tx);font-weight:700;min-width:40px;text-align:left}
 .report-summary{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
-.report-summary-item{background:var(--sf2);padding:10px;border-radius:10px;text-align:center;border:1px solid var(--bd)}
-.report-summary-value{font-size:1.1rem;font-weight:700;color:var(--tx)}
+.report-summary-item{background:var(--sf2);padding:10px 6px;border-radius:10px;text-align:center;border:1px solid var(--bd);overflow:hidden;min-width:0;box-sizing:border-box}
+.report-summary-value{font-size:clamp(.85rem,3.6vw,1.1rem);font-weight:700;color:var(--tx);overflow-wrap:break-word;word-break:break-word}
 .report-summary-label{font-size:.65rem;color:var(--tx3);margin-top:2px}
 
 .print-header{display:none}
@@ -669,8 +669,8 @@ tbody td.price-cash,tbody td.price-check,tbody td.price-months{display:table-cel
 .today-item{border:1px solid var(--bd)}
 
 /* ---------- Stat / report cards ---------- */
-.stat-card{border:1px solid var(--bd);position:relative}
-.stat-value{font-size:1.65rem}
+.stat-card{border:1px solid var(--bd);position:relative;overflow:hidden;min-width:0}
+.stat-value{font-size:clamp(.95rem,4.5vw,1.65rem);overflow-wrap:break-word;word-break:break-word}
 .report-card{border:1px solid var(--bd)}
 .report-bar-track{border-radius:20px}
 .report-bar-fill{border-radius:20px}
@@ -1177,6 +1177,27 @@ html[data-theme="dark"] .modal-overlay{background:rgba(0,0,0,.7)}
     <div id="adminTab-stats" class="admin-tab hidden">
       <div class="panel">
         <div class="panel-title">📊 آمار</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+          <label style="font-size:.78rem;color:var(--tx2)">📅 از:</label>
+          <div class="jdate-row" style="flex:1;max-width:280px">
+            <select id="statsFromYear" class="edit-input" style="flex:1;padding:6px 4px;font-size:.8rem"></select>
+            <select id="statsFromMonth" class="edit-input" style="flex:1;padding:6px 4px;font-size:.8rem"></select>
+            <select id="statsFromDay" class="edit-input" style="flex:1;padding:6px 4px;font-size:.8rem"></select>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+          <label style="font-size:.78rem;color:var(--tx2)">📅 تا:</label>
+          <div class="jdate-row" style="flex:1;max-width:280px">
+            <select id="statsToYear" class="edit-input" style="flex:1;padding:6px 4px;font-size:.8rem"></select>
+            <select id="statsToMonth" class="edit-input" style="flex:1;padding:6px 4px;font-size:.8rem"></select>
+            <select id="statsToDay" class="edit-input" style="flex:1;padding:6px 4px;font-size:.8rem"></select>
+          </div>
+        </div>
+        <div class="btn-row" style="margin-top:0;margin-bottom:6px">
+          <button class="btn btn-blue btn-sm" onclick="applyStatsDateFilter()">✅ اعمال فیلتر</button>
+          <button class="btn btn-gray btn-sm" onclick="clearStatsDateFilter()">🔄 حذف فیلتر (همه)</button>
+        </div>
+        <div id="statsFilterLabel" style="font-size:.75rem;color:var(--purple);margin-bottom:8px"></div>
         <div class="stats-grid" id="statsGrid"></div>
       </div>
       <div class="panel">
@@ -1947,6 +1968,38 @@ function jDateSelectToISO(prefix){
   var g=j2g(jy,jm,jd);
   return g[0]+"-"+String(g[1]).padStart(2,"0")+"-"+String(g[2]).padStart(2,"0");
 }
+
+// ── فیلتر بازه‌ی تاریخی آمار ─────────────────────────────────────────
+var _statsFilterFrom=null,_statsFilterTo=null,_statsFilterInited=false;
+function initStatsDateFilterIfNeeded(){
+  if(_statsFilterInited)return;
+  _statsFilterInited=true;
+  var to=new Date();
+  var from=new Date();from.setDate(from.getDate()-30);
+  var toISO=to.getFullYear()+"-"+String(to.getMonth()+1).padStart(2,"0")+"-"+String(to.getDate()).padStart(2,"0");
+  var fromISO=from.getFullYear()+"-"+String(from.getMonth()+1).padStart(2,"0")+"-"+String(from.getDate()).padStart(2,"0");
+  fillJDateSelects("statsFrom",fromISO);
+  fillJDateSelects("statsTo",toISO);
+}
+function applyStatsDateFilter(){
+  var f=jDateSelectToISO("statsFrom"),t=jDateSelectToISO("statsTo");
+  if(!f||!t){toast("تاریخ را انتخاب کن",1);return}
+  if(f>t){toast("تاریخ «از» باید قبل یا مساوی «تا» باشه",1);return}
+  _statsFilterFrom=f;_statsFilterTo=t;
+  renderStats();
+  toast("فیلتر اعمال شد ✅");
+}
+function clearStatsDateFilter(){
+  _statsFilterFrom=null;_statsFilterTo=null;
+  renderStats();
+  toast("فیلتر برداشته شد");
+}
+function _inStatsRange(iso){
+  if(!_statsFilterFrom||!_statsFilterTo)return true;
+  if(!iso)return false;
+  var d=String(iso).substr(0,10);
+  return d>=_statsFilterFrom&&d<=_statsFilterTo;
+}
 function statusLabel(s){return{visited:"👁️ بازدید",order:"✅ سفارش",no_order:"❌ بدون سفارش",new_customer:"⭐ جدید",follow_up:"🔄 پیگیری"}[s]||s}
 
 // شماره فاکتور: 14040405-1423
@@ -2161,7 +2214,7 @@ function switchAdminTab(tab){
   if(tab==="customers")renderAdminCustomers();
   if(tab==="orders"){var aoy=$("adminOrdersJYear");if(aoy&&!aoy.value)initJalaliFilterToday("adminOrders");renderAdminOrders();}
   if(tab==="visits"){var avy=$("adminVisitsJYear");if(avy&&!avy.value)initJalaliFilterToday("adminVisits");renderAdminVisits();updateAdminMapFilter();setTimeout(initAdminMap,100)}
-  if(tab==="stats")renderStats();
+  if(tab==="stats"){initStatsDateFilterIfNeeded();renderStats();}
 }
 
 // VISITOR SELECT
@@ -2228,6 +2281,11 @@ function deleteVisitorByIndex(i){
   // این ویزیتور رو از نسخه‌ی remote برگردونه؛ تومبستون این مشکل رو حل می‌کنه.
   v.deleted=true;v.updatedAt=new Date().toISOString();
   if(APP.currentVisitor===v.name)APP.currentVisitor="";
+  // یادآورهای این ویزیتور هم حذف (تومبستون) بشن تا توی گزارش‌ها/آمار دیگه نمایش داده نشن
+  var nowDelRem=new Date().toISOString();
+  APP.reminders.forEach(function(r){
+    if(!r.deleted&&r.visitor===v.name){r.deleted=true;r.updatedAt=nowDelRem;}
+  });
   saveLocal();renderVisitorManageList();toast("حذف شد");
 }
 
@@ -3291,10 +3349,28 @@ function deleteReminder(id){if(!confirm("حذف یادآور؟"))return;var r=AP
 
 // STATS
 function renderStats(){
+  var visActive=APP.visits.filter(function(v){return!v.deleted});
+  var ordActive=APP.orders.filter(function(o){return!o.deleted});
+  var custActive=APP.customers.filter(function(c){return!c.deleted});
+
+  var rangeOn=!!(_statsFilterFrom&&_statsFilterTo);
+  var visF=rangeOn?visActive.filter(function(v){return _inStatsRange(v.createdAt)}):visActive;
+  var ordF=rangeOn?ordActive.filter(function(o){return _inStatsRange(o.at)}):ordActive;
+  var custF=rangeOn?custActive.filter(function(c){return _inStatsRange(c.createdAt)}):custActive;
+
   var tj=todayJ(),tv=0,to=0,ta=0;
-  APP.visits.forEach(function(v){var d=new Date(v.createdAt),j=g2j(d.getFullYear(),d.getMonth()+1,d.getDate());if(j[0]+"/"+String(j[1]).padStart(2,"0")+"/"+String(j[2]).padStart(2,"0")===tj)tv++});
-  APP.orders.forEach(function(o){var d=new Date(o.at),j=g2j(d.getFullYear(),d.getMonth()+1,d.getDate());if(j[0]+"/"+String(j[1]).padStart(2,"0")+"/"+String(j[2]).padStart(2,"0")===tj)to++;ta+=o.tc||0});
-  $("statsGrid").innerHTML='<div class="stat-card"><div class="stat-value">'+toPe(APP.visits.length)+'</div><div class="stat-label">بازدید</div></div><div class="stat-card"><div class="stat-value">'+toPe(APP.orders.length)+'</div><div class="stat-label">سفارش</div></div><div class="stat-card"><div class="stat-value">'+toPe(APP.customers.length)+'</div><div class="stat-label">مشتری</div></div><div class="stat-card"><div class="stat-value">'+toPe(tv)+'</div><div class="stat-label">بازدید امروز</div></div><div class="stat-card"><div class="stat-value">'+toPe(to)+'</div><div class="stat-label">سفارش امروز</div></div><div class="stat-card"><div class="stat-value">'+fmtView(ta)+'</div><div class="stat-label">فروش(ت)</div></div>';
+  visActive.forEach(function(v){var d=new Date(v.createdAt),j=g2j(d.getFullYear(),d.getMonth()+1,d.getDate());if(j[0]+"/"+String(j[1]).padStart(2,"0")+"/"+String(j[2]).padStart(2,"0")===tj)tv++});
+  ordActive.forEach(function(o){var d=new Date(o.at),j=g2j(d.getFullYear(),d.getMonth()+1,d.getDate());if(j[0]+"/"+String(j[1]).padStart(2,"0")+"/"+String(j[2]).padStart(2,"0")===tj)to++;ta+=o.tc||0});
+
+  var rangeSale=0;ordF.forEach(function(o){rangeSale+=o.tc||0});
+  var fl=$("statsFilterLabel");
+  if(rangeOn)fl.innerHTML="🔎 بازه فعال: "+fmtDate(_statsFilterFrom)+" تا "+fmtDate(_statsFilterTo)+" — فروش بازه: "+fmtView(rangeSale)+" تومان";
+  else fl.innerHTML="";
+
+  var vLbl=rangeOn?"بازدید (بازه)":"بازدید";
+  var oLbl=rangeOn?"سفارش (بازه)":"سفارش";
+  var cLbl=rangeOn?"مشتری (بازه)":"مشتری";
+  $("statsGrid").innerHTML='<div class="stat-card"><div class="stat-value">'+toPe(visF.length)+'</div><div class="stat-label">'+vLbl+'</div></div><div class="stat-card"><div class="stat-value">'+toPe(ordF.length)+'</div><div class="stat-label">'+oLbl+'</div></div><div class="stat-card"><div class="stat-value">'+toPe(custF.length)+'</div><div class="stat-label">'+cLbl+'</div></div><div class="stat-card"><div class="stat-value">'+toPe(tv)+'</div><div class="stat-label">بازدید امروز</div></div><div class="stat-card"><div class="stat-value">'+toPe(to)+'</div><div class="stat-label">سفارش امروز</div></div><div class="stat-card"><div class="stat-value">'+fmtView(ta)+'</div><div class="stat-label">فروش(ت)</div></div>';
 
   var vs=$("visitorStats");
   var activeVisitorsForStats=APP.visitors.filter(function(v){return !v.deleted});
@@ -3302,37 +3378,40 @@ function renderStats(){
   var h="";
   activeVisitorsForStats.forEach(function(vi){
     var vc=0,voc=0,vcc=0,voa=0;
-    APP.visits.forEach(function(v){if(v.visitor===vi.name)vc++});
-    APP.orders.forEach(function(o){if(o.vis===vi.name){voc++;voa+=o.tc||0}});
-    APP.customers.forEach(function(c){if(c.visitor===vi.name)vcc++});
-    h+='<div class="visit-card"><div class="vc-shop">👤 '+esc(vi.name)+'</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(80px,1fr));gap:6px;margin-top:8px"><div style="background:var(--bg);padding:6px;border-radius:6px;text-align:center"><div style="color:var(--blue);font-weight:700">'+toPe(vc)+'</div><div style="font-size:.65rem;color:var(--tx3)">بازدید</div></div><div style="background:var(--bg);padding:6px;border-radius:6px;text-align:center"><div style="color:var(--green);font-weight:700">'+toPe(voc)+'</div><div style="font-size:.65rem;color:var(--tx3)">سفارش</div></div><div style="background:var(--bg);padding:6px;border-radius:6px;text-align:center"><div style="color:var(--orange);font-weight:700">'+toPe(vcc)+'</div><div style="font-size:.65rem;color:var(--tx3)">مشتری</div></div><div style="background:var(--bg);padding:6px;border-radius:6px;text-align:center"><div style="color:var(--pink);font-weight:700">'+fmtView(voa)+'</div><div style="font-size:.65rem;color:var(--tx3)">فروش</div></div></div></div>';
+    visF.forEach(function(v){if(v.visitor===vi.name)vc++});
+    ordF.forEach(function(o){if(o.vis===vi.name){voc++;voa+=o.tc||0}});
+    custF.forEach(function(c){if(c.visitor===vi.name)vcc++});
+    h+='<div class="visit-card"><div class="vc-shop">👤 '+esc(vi.name)+'</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(80px,1fr));gap:6px;margin-top:8px"><div style="background:var(--bg);padding:6px;border-radius:6px;text-align:center;overflow:hidden;min-width:0"><div style="color:var(--blue);font-weight:700;overflow-wrap:break-word">'+toPe(vc)+'</div><div style="font-size:.65rem;color:var(--tx3)">بازدید</div></div><div style="background:var(--bg);padding:6px;border-radius:6px;text-align:center;overflow:hidden;min-width:0"><div style="color:var(--green);font-weight:700;overflow-wrap:break-word">'+toPe(voc)+'</div><div style="font-size:.65rem;color:var(--tx3)">سفارش</div></div><div style="background:var(--bg);padding:6px;border-radius:6px;text-align:center;overflow:hidden;min-width:0"><div style="color:var(--orange);font-weight:700;overflow-wrap:break-word">'+toPe(vcc)+'</div><div style="font-size:.65rem;color:var(--tx3)">مشتری</div></div><div style="background:var(--bg);padding:6px;border-radius:6px;text-align:center;overflow:hidden;min-width:0"><div style="color:var(--pink);font-weight:700;overflow-wrap:break-word">'+fmtView(voa)+'</div><div style="font-size:.65rem;color:var(--tx3)">فروش</div></div></div></div>';
   });
   vs.innerHTML=h;
   renderAdvancedReports();
 }
 function renderAdvancedReports(){
   var h="";
+  var rangeOn=!!(_statsFilterFrom&&_statsFilterTo);
+  var visActive=APP.visits.filter(function(v){return!v.deleted&&(!rangeOn||_inStatsRange(v.createdAt))});
+  var ordActive=APP.orders.filter(function(o){return!o.deleted&&(!rangeOn||_inStatsRange(o.at))});
 
-  h+='<div class="report-card"><div class="report-title">📊 بازدید ویزیتورها</div>';
+  h+='<div class="report-card"><div class="report-title">📊 بازدید ویزیتورها'+(rangeOn?' (بازه)':'')+'</div>';
   var activeVisitorsForReports=APP.visitors.filter(function(v){return !v.deleted});
-  var mx=1;activeVisitorsForReports.forEach(function(v){var c=0;APP.visits.forEach(function(x){if(x.visitor===v.name)c++});if(c>mx)mx=c});
+  var mx=1;activeVisitorsForReports.forEach(function(v){var c=0;visActive.forEach(function(x){if(x.visitor===v.name)c++});if(c>mx)mx=c});
   activeVisitorsForReports.forEach(function(v){
-    var c=0;APP.visits.forEach(function(x){if(x.visitor===v.name)c++});
+    var c=0;visActive.forEach(function(x){if(x.visitor===v.name)c++});
     h+='<div class="report-bar"><div class="report-bar-label">'+esc(v.name)+'</div><div class="report-bar-track"><div class="report-bar-fill" style="width:'+Math.round(c/mx*100)+'%;background:var(--blue)">'+toPe(c)+'</div></div></div>';
   });
   h+='</div>';
 
-  h+='<div class="report-card"><div class="report-title">💰 فروش ویزیتورها</div>';
-  var ms=1;activeVisitorsForReports.forEach(function(v){var s=0;APP.orders.forEach(function(x){if(x.vis===v.name)s+=x.tc||0});if(s>ms)ms=s});
+  h+='<div class="report-card"><div class="report-title">💰 فروش ویزیتورها'+(rangeOn?' (بازه)':'')+'</div>';
+  var ms=1;activeVisitorsForReports.forEach(function(v){var s=0;ordActive.forEach(function(x){if(x.vis===v.name)s+=x.tc||0});if(s>ms)ms=s});
   activeVisitorsForReports.forEach(function(v){
-    var s=0;APP.orders.forEach(function(x){if(x.vis===v.name)s+=x.tc||0});
+    var s=0;ordActive.forEach(function(x){if(x.vis===v.name)s+=x.tc||0});
     h+='<div class="report-bar"><div class="report-bar-label">'+esc(v.name)+'</div><div class="report-bar-track"><div class="report-bar-fill" style="width:'+Math.round(s/ms*100)+'%;background:var(--orange)">'+fmtView(s)+'</div></div><div class="report-bar-value">'+fmtView(s)+'</div></div>';
   });
   h+='</div>';
 
-  h+='<div class="report-card"><div class="report-title">📋 وضعیت بازدیدها</div>';
+  h+='<div class="report-card"><div class="report-title">📋 وضعیت بازدیدها'+(rangeOn?' (بازه)':'')+'</div>';
   var sc={visited:0,order:0,no_order:0,new_customer:0,follow_up:0};
-  APP.visits.forEach(function(v){sc[v.status]=(sc[v.status]||0)+1});
+  visActive.forEach(function(v){sc[v.status]=(sc[v.status]||0)+1});
   var mst=Math.max(1,sc.visited,sc.order,sc.no_order,sc.new_customer,sc.follow_up);
   var col={visited:"var(--blue)",order:"var(--green)",no_order:"var(--red)",new_customer:"var(--purple)",follow_up:"var(--yellow)"};
   Object.keys(sc).forEach(function(k){
@@ -3341,15 +3420,18 @@ function renderAdvancedReports(){
   h+='</div>';
 
   var w7v=0,w7o=0,w7s=0;
+  var visAll=APP.visits.filter(function(v){return!v.deleted});
+  var ordAll=APP.orders.filter(function(o){return!o.deleted});
   for(var i=6;i>=0;i--){
     var d=new Date();d.setDate(d.getDate()-i);
     var ds=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
-    APP.visits.forEach(function(v){if(v.createdAt&&v.createdAt.substr(0,10)===ds)w7v++});
-    APP.orders.forEach(function(o){if(o.at&&o.at.substr(0,10)===ds){w7o++;w7s+=o.tc||0}});
+    visAll.forEach(function(v){if(v.createdAt&&v.createdAt.substr(0,10)===ds)w7v++});
+    ordAll.forEach(function(o){if(o.at&&o.at.substr(0,10)===ds){w7o++;w7s+=o.tc||0}});
   }
   h+='<div class="report-card"><div class="report-title">📅 خلاصه ۷ روز</div><div class="report-summary"><div class="report-summary-item"><div class="report-summary-value" style="color:var(--blue)">'+toPe(w7v)+'</div><div class="report-summary-label">بازدید ۷ روز</div></div><div class="report-summary-item"><div class="report-summary-value" style="color:var(--green)">'+toPe(w7o)+'</div><div class="report-summary-label">سفارش ۷ روز</div></div><div class="report-summary-item"><div class="report-summary-value" style="color:var(--orange)">'+fmtView(w7s)+'</div><div class="report-summary-label">فروش ۷ روز</div></div><div class="report-summary-item"><div class="report-summary-value" style="color:var(--purple)">'+toPe(w7v>0?Math.round(w7v/7):0)+'</div><div class="report-summary-label">میانگین روزانه</div></div></div></div>';
 
-  var rems=APP.reminders.filter(function(r){return!r.deleted&&!r.completed});
+  var activeVisitorNames={};activeVisitorsForReports.forEach(function(v){activeVisitorNames[v.name]=true});
+  var rems=APP.reminders.filter(function(r){return!r.deleted&&!r.completed&&activeVisitorNames[r.visitor]});
   h+='<div class="report-card"><div class="report-title">🔔 یادآورهای فعال ('+toPe(rems.length)+')</div>';
   if(!rems.length)h+='<div style="text-align:center;color:var(--tx4);padding:10px">یادآوری نیست</div>';
   else{
