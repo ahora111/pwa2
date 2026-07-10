@@ -1964,8 +1964,14 @@ function saveLocal(){
   }catch(e){}
   autoCloudSync();
 }
+var _pendingUploadsCount = 0;
 function autoCloudSync(){
   if(!CFG.fbApiKey)return;
+  // از همین لحظه (نه فقط موقع شکست شبکه) جلوی هر downloadی رو بگیر،
+  // تا وقتی که آپلود این تغییر واقعاً روی فایربیس نشسته باشه.
+  // بدون این خط، اگه توی همین ۱.۵ ثانیه یه visibilitychange یا reconnect
+  // اتفاق بیفته، دیتای قدیمی از سرور میاد و تغییر تازه‌ی کاربر رو پاک می‌کنه.
+  _blockDownloadUntilFlushed = true;
   clearTimeout(APP.cloudSyncTimer);
   APP.cloudSyncTimer=setTimeout(function(){
     if(!navigator.onLine){
@@ -1979,8 +1985,13 @@ function autoCloudSync(){
       scheduleSyncRetry();
       return;
     }
-    uploadMeta(true);
-    if(APP.isAdmin) uploadProductsJB(true);
+    _pendingUploadsCount = 1 + (APP.isAdmin?1:0);
+    function doneOne(){
+      _pendingUploadsCount--;
+      if(_pendingUploadsCount<=0) _blockDownloadUntilFlushed = false;
+    }
+    uploadMeta(true, doneOne);
+    if(APP.isAdmin) uploadProductsJB(true, doneOne);
   },1500);
 }
 function autoSave(){
