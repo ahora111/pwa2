@@ -1986,6 +1986,12 @@ var _pendingUploadsCount = 0;
 // کل لیست محصولات محلی (که ممکنه قدیمی/stale باشه، مثلاً یه تب دیگه محصول جدید اضافه کرده)
 // رو overwrite کنه روی Firebase و محصولات جدید پاک بشن.
 var _lastSyncedProductsJSON = null;
+// ردیابی آخرین updatedAt محصولات که از Firebase دیدیم (دانلود یا آپلود موفق).
+// این مقدار، مبنای تشخیص «آیا کس دیگه‌ای از آخرین باری که ما با Firebase
+// هماهنگ شدیم، چیزی رو عوض کرده یا نه» هست — نه تعداد آیتم‌ها.
+// چون تعداد کمتر می‌تونه کاملاً عمدی باشه (حذف/پاک‌کردن توسط خود ادمین)
+// و نباید به‌عنوان «داده قدیمی» تفسیر بشه.
+var _lastKnownRemoteProductsUpdatedAt = null;
 function _productsChangedSinceLastSync(){
   try{
     return JSON.stringify(APP.products) !== _lastSyncedProductsJSON;
@@ -3654,13 +3660,28 @@ function uploadProductsJB(s,doneCb,reason){
   // حداقل توی لاگ دیده بشه و بشه فهمید این آپلود باعث از دست رفتن داده شد یا نه.
   fbGet("products", function(remoteBefore){
     var remoteCount = (remoteBefore && remoteBefore.products) ? remoteBefore.products.length : null;
-    if(remoteCount !== null && remoteCount > localCount){
+    var remoteUpdatedAt = remoteBefore ? remoteBefore.updatedAt : null;
+    // قانون درست: تعداد کمتر توی محلی به‌تنهایی دلیل «داده قدیمیه» نیست —
+    // خیلی وقت‌ها همون حذف/پاک‌کردن عمدی خود ادمینه (deleteProduct / clearAllProducts).
+    // چیزی که واقعاً باید چک بشه اینه: «آیا از آخرین باری که این تب با Firebase
+    // sync شده (آپلود یا دانلود موفق)، یه دستگاه/تب دیگه چیزی رو عوض کرده؟»
+    // این رو با مقایسه‌ی updatedAt فعلی روی Firebase با آخرین updatedAt‌ای که
+    // خودمون دیدیم می‌فهمیم، نه با شمردن تعداد آیتم‌ها.
+    var remoteChangedByOthers = (_lastKnownRemoteProductsUpdatedAt !== null)
+      && remoteUpdatedAt
+      && (remoteUpdatedAt !== _lastKnownRemoteProductsUpdatedAt);
+    // اگه هنوز هیچ baseline‌ای نداریم (مثلاً اولین sync همین سشن قبل از هر دانلودی)،
+    // برای احتیاط از همون قانون قدیمی (مقایسه‌ی تعداد) به‌عنوان fallback استفاده کن.
+    var suspiciousFallback = (_lastKnownRemoteProductsUpdatedAt === null)
+      && remoteCount !== null && remoteCount > localCount;
+
+    if(remoteChangedByOthers || suspiciousFallback){
       // این تب/سشن یه نسخه‌ی قدیمی‌تر از محصولات توی حافظه داره (مثلاً یه تب دیگه
       // محصول جدید اضافه کرده و این تب هنوز اون رو نگرفته). اگه همینجا overwrite کنیم،
       // دقیقاً همون باگیه که باعث میشه محصولات جدید بعد از یه مدت پاک بشن.
       // پس به‌جای overwrite کورکورانه، آپلود رو متوقف می‌کنیم و اول از Firebase
       // به‌روز می‌شیم؛ تغییر محلی (اگه واقعی بود) بعد از sync دوباره اعمال/آپلود میشه.
-      logSync("🛑 آپلود لغو شد: Firebase الان "+toPe(remoteCount)+" کالا داره ولی محلی فقط "+toPe(localCount)+" تا داره — برای جلوگیری از پاک شدن داده، اول دانلود می‌کنیم");
+      logSync("🛑 آپلود لغو شد: از آخرین sync، Firebase توسط جای دیگه‌ای تغییر کرده (الان "+toPe(remoteCount===null?0:remoteCount)+" کالا داره، محلی "+toPe(localCount)+" تا) — برای جلوگیری از پاک شدن داده، اول دانلود می‌کنیم");
       _blockDownloadUntilFlushed = false; // اجازه بده downloadProductsJB واقعاً اجرا بشه
       downloadProductsJB(true);
       if(!s)toast("داده‌های جدیدتری روی سرور بود — صفحه با آخرین نسخه هماهنگ شد. لطفاً تغییرتون رو دوباره بررسی/ثبت کنید.",1);
@@ -3668,9 +3689,11 @@ function uploadProductsJB(s,doneCb,reason){
       return;
     }
     logSync("ℹ️ Firebase قبل از آپلود: "+(remoteCount===null?"نامشخص":toPe(remoteCount))+" کالا");
-    var data={shopName:CFG.shopName,products:APP.products,updatedAt:Date.now()};
+    var newUpdatedAt = Date.now();
+    var data={shopName:CFG.shopName,products:APP.products,updatedAt:newUpdatedAt};
     fbSet("products",data,function(){
       logSync("✅ آپلود محصولات تمام شد — "+toPe(localCount)+" کالا نوشته شد روی Firebase");
+      _lastKnownRemoteProductsUpdatedAt = newUpdatedAt;
       _markProductsSynced();
       if(!s)toast("محصولات آپلود شد ✅");
       if(doneCb) doneCb();
@@ -3691,6 +3714,7 @@ function downloadProductsJB(s){
   fbGet("products",function(d){
     if(d&&d.products){
       var remote=d.products;
+      _lastKnownRemoteProductsUpdatedAt = d.updatedAt || Date.now();
       var remoteIds = remote.map(function(p){return p.id});
       var added = remoteIds.filter(function(id){return beforeIds.indexOf(id)<0});
       var removed = beforeIds.filter(function(id){return remoteIds.indexOf(id)<0});
