@@ -2054,7 +2054,11 @@ function loadLocal(){
     x=localStorage.getItem("mp_reminders");if(x)APP.reminders=JSON.parse(x);
     APP.currentVisitor=localStorage.getItem("mp_currentVisitor")||"";
     APP.products.forEach(function(p){if(!p.images)p.images=[]});
-    APP.visitors.forEach(function(v,i){if(typeof v==="string")APP.visitors[i]={name:v,password:""}});
+    APP.visitors.forEach(function(v,i){
+      if(typeof v==="string")v=APP.visitors[i]={name:v,password:""};
+      if(v.deleted===undefined)v.deleted=false;
+      if(!v.updatedAt)v.updatedAt=v.createdAt||new Date(0).toISOString();
+    });
   }catch(e){}
 }
 
@@ -2165,16 +2169,18 @@ function showVisitorSelect(){renderVisitorSelectList();$("modalVisitorSelect").c
 function changeVisitor(){if(confirm("عوض بشه؟")){APP.currentVisitor="";saveLocal();updateTopUI();goProducts();showVisitorSelect()}}
 function renderVisitorSelectList(){
   var c=$("visitorSelectList");
-  if(!APP.visitors.length){c.innerHTML='<div class="empty-state" style="padding:30px"><div style="font-size:2rem;margin-bottom:10px">🔒</div><div>ویزیتوری نیست</div></div>';return}
+  var activeVisitors=APP.visitors.filter(function(v){return !v.deleted});
+  if(!activeVisitors.length){c.innerHTML='<div class="empty-state" style="padding:30px"><div style="font-size:2rem;margin-bottom:10px">🔒</div><div>ویزیتوری نیست</div></div>';return}
   var h="";
   APP.visitors.forEach(function(v,i){
+    if(v.deleted)return;
     var cnt=0;APP.visits.forEach(function(x){if(x.visitor===v.name)cnt++});
     h+='<div class="visitor-item '+(APP.currentVisitor===v.name?"active":"")+'" onclick="selectVisitorByIndex('+i+')"><div class="visitor-avatar">'+esc(v.name[0])+'</div><div style="flex:1"><div class="visitor-name">'+esc(v.name)+(v.password?' 🔒':'')+'</div><div class="visitor-stats">'+toPe(cnt)+' بازدید</div></div></div>';
   });
   c.innerHTML=h;
 }
 function selectVisitorByIndex(i){
-  var v=APP.visitors[i];if(!v)return;
+  var v=APP.visitors[i];if(!v||v.deleted)return;
   if(v.password)showVisitorLogin(v.name);
   else{APP.currentVisitor=v.name;saveLocal();updateTopUI();$("modalVisitorSelect").classList.remove("show");toast("سلام "+v.name+" 👋");if(getTodayReminders().length>0){$("todayBanner").style.display="block";renderToday()}}
 }
@@ -2182,9 +2188,11 @@ function selectVisitorByIndex(i){
 // VISITOR MANAGE
 function renderVisitorManageList(){
   var c=$("visitorManageList");
-  if(!APP.visitors.length){c.innerHTML='<div style="text-align:center;padding:20px;color:var(--tx4)">خالی</div>';return}
+  var activeVisitors=APP.visitors.filter(function(v){return !v.deleted});
+  if(!activeVisitors.length){c.innerHTML='<div style="text-align:center;padding:20px;color:var(--tx4)">خالی</div>';return}
   var h="";
   APP.visitors.forEach(function(v,i){
+    if(v.deleted)return;
     var cnt=0;APP.visits.forEach(function(x){if(x.visitor===v.name)cnt++});
     h+='<div class="vm-item"><div class="vm-info"><div class="vm-name">'+esc(v.name)+'</div><div style="font-size:.7rem;color:var(--tx3)">'+toPe(cnt)+' بازدید</div>'+(v.password?'<div class="vm-pw">🔑 '+toPe(v.password)+'</div>':'')+'</div><div style="display:flex;gap:4px"><button class="icon-btn" onclick="editVisitorPwByIndex('+i+')" style="color:var(--blue)">🔑</button><button class="icon-btn" onclick="deleteVisitorByIndex('+i+')" style="color:var(--red)">🗑️</button></div></div>';
   });
@@ -2193,8 +2201,15 @@ function renderVisitorManageList(){
 function addVisitor(){
   var n=$("newVisitorName").value.trim(),pw=$("newVisitorPw").value.trim();
   if(!n){toast("نام؟",1);return}
-  if(APP.visitors.some(function(v){return v.name===n})){toast("تکراری",1);return}
-  APP.visitors.push({name:n,password:pw});
+  if(APP.visitors.some(function(v){return v.name===n && !v.deleted})){toast("تکراری",1);return}
+  var now=new Date().toISOString();
+  var existingDeleted=APP.visitors.find(function(v){return v.name===n && v.deleted});
+  if(existingDeleted){
+    // قبلاً حذف شده بود، دوباره فعالش کن به‌جای اضافه‌کردن رکورد تکراری
+    existingDeleted.deleted=false;existingDeleted.password=pw;existingDeleted.updatedAt=now;
+  }else{
+    APP.visitors.push({name:n,password:pw,createdAt:now,updatedAt:now,deleted:false});
+  }
   $("newVisitorName").value="";$("newVisitorPw").value="";
   saveLocal();renderVisitorManageList();toast("اضافه شد ✅");
 }
@@ -2202,11 +2217,17 @@ function editVisitorPwByIndex(i){
   var v=APP.visitors[i];if(!v)return;
   var pw=prompt("رمز جدید:",v.password||"");
   if(pw===null)return;
-  v.password=pw.trim();saveLocal();renderVisitorManageList();toast("ذخیره شد");
+  v.password=pw.trim();v.updatedAt=new Date().toISOString();saveLocal();renderVisitorManageList();toast("ذخیره شد");
 }
 function deleteVisitorByIndex(i){
+  var v=APP.visitors[i];if(!v)return;
   if(!confirm("حذف؟"))return;
-  APP.visitors.splice(i,1);
+  // به‌جای حذف واقعی از آرایه (splice)، یک تومبستون می‌ذاریم — دقیقاً مثل حذف
+  // مشتری/سفارش/بازدید/یادآور. چون sync محصولات/متا مبتنی بر merge دوطرفه‌ست،
+  // splice کردن باعث میشه merge بعدی (که remote رو هم در نظر می‌گیره) دوباره
+  // این ویزیتور رو از نسخه‌ی remote برگردونه؛ تومبستون این مشکل رو حل می‌کنه.
+  v.deleted=true;v.updatedAt=new Date().toISOString();
+  if(APP.currentVisitor===v.name)APP.currentVisitor="";
   saveLocal();renderVisitorManageList();toast("حذف شد");
 }
 
@@ -3226,7 +3247,7 @@ function updateMyMap(arr){
 }
 function updateAdminMapFilter(){
   var h='<option value="">همه</option>';
-  APP.visitors.forEach(function(v){h+='<option value="'+esc(v.name)+'">'+esc(v.name)+'</option>'});
+  APP.visitors.forEach(function(v){if(v.deleted)return;h+='<option value="'+esc(v.name)+'">'+esc(v.name)+'</option>'});
   $("adminMapVisitorFilter").innerHTML=h;
 }
 
@@ -3276,9 +3297,10 @@ function renderStats(){
   $("statsGrid").innerHTML='<div class="stat-card"><div class="stat-value">'+toPe(APP.visits.length)+'</div><div class="stat-label">بازدید</div></div><div class="stat-card"><div class="stat-value">'+toPe(APP.orders.length)+'</div><div class="stat-label">سفارش</div></div><div class="stat-card"><div class="stat-value">'+toPe(APP.customers.length)+'</div><div class="stat-label">مشتری</div></div><div class="stat-card"><div class="stat-value">'+toPe(tv)+'</div><div class="stat-label">بازدید امروز</div></div><div class="stat-card"><div class="stat-value">'+toPe(to)+'</div><div class="stat-label">سفارش امروز</div></div><div class="stat-card"><div class="stat-value">'+fmtView(ta)+'</div><div class="stat-label">فروش(ت)</div></div>';
 
   var vs=$("visitorStats");
-  if(!APP.visitors.length){vs.innerHTML='<div style="text-align:center;color:var(--tx4);padding:20px">خالی</div>';renderAdvancedReports();return}
+  var activeVisitorsForStats=APP.visitors.filter(function(v){return !v.deleted});
+  if(!activeVisitorsForStats.length){vs.innerHTML='<div style="text-align:center;color:var(--tx4);padding:20px">خالی</div>';renderAdvancedReports();return}
   var h="";
-  APP.visitors.forEach(function(vi){
+  activeVisitorsForStats.forEach(function(vi){
     var vc=0,voc=0,vcc=0,voa=0;
     APP.visits.forEach(function(v){if(v.visitor===vi.name)vc++});
     APP.orders.forEach(function(o){if(o.vis===vi.name){voc++;voa+=o.tc||0}});
@@ -3292,16 +3314,17 @@ function renderAdvancedReports(){
   var h="";
 
   h+='<div class="report-card"><div class="report-title">📊 بازدید ویزیتورها</div>';
-  var mx=1;APP.visitors.forEach(function(v){var c=0;APP.visits.forEach(function(x){if(x.visitor===v.name)c++});if(c>mx)mx=c});
-  APP.visitors.forEach(function(v){
+  var activeVisitorsForReports=APP.visitors.filter(function(v){return !v.deleted});
+  var mx=1;activeVisitorsForReports.forEach(function(v){var c=0;APP.visits.forEach(function(x){if(x.visitor===v.name)c++});if(c>mx)mx=c});
+  activeVisitorsForReports.forEach(function(v){
     var c=0;APP.visits.forEach(function(x){if(x.visitor===v.name)c++});
     h+='<div class="report-bar"><div class="report-bar-label">'+esc(v.name)+'</div><div class="report-bar-track"><div class="report-bar-fill" style="width:'+Math.round(c/mx*100)+'%;background:var(--blue)">'+toPe(c)+'</div></div></div>';
   });
   h+='</div>';
 
   h+='<div class="report-card"><div class="report-title">💰 فروش ویزیتورها</div>';
-  var ms=1;APP.visitors.forEach(function(v){var s=0;APP.orders.forEach(function(x){if(x.vis===v.name)s+=x.tc||0});if(s>ms)ms=s});
-  APP.visitors.forEach(function(v){
+  var ms=1;activeVisitorsForReports.forEach(function(v){var s=0;APP.orders.forEach(function(x){if(x.vis===v.name)s+=x.tc||0});if(s>ms)ms=s});
+  activeVisitorsForReports.forEach(function(v){
     var s=0;APP.orders.forEach(function(x){if(x.vis===v.name)s+=x.tc||0});
     h+='<div class="report-bar"><div class="report-bar-label">'+esc(v.name)+'</div><div class="report-bar-track"><div class="report-bar-fill" style="width:'+Math.round(s/ms*100)+'%;background:var(--orange)">'+fmtView(s)+'</div></div><div class="report-bar-value">'+fmtView(s)+'</div></div>';
   });
@@ -3380,6 +3403,47 @@ function mergeById(localArr,remoteArr){
     }
   });
   // تومبستون‌های قدیمی‌تر از ۳۰ روز رو پاک کن تا حجم داده رشد نکنه
+  var THIRTY_DAYS=30*24*60*60*1000;
+  var now=Date.now();
+  result=result.filter(function(x){
+    if(!x.deleted)return true;
+    var t=_toMs(x.updatedAt||x.createdAt);
+    return (now-t) < THIRTY_DAYS;
+  });
+  return result;
+}
+// ویزیتورها id ندارن (نام یکتاست و همه‌جای کد به‌عنوان کلید استفاده میشه)
+// پس همون منطق mergeById رو با کلید "name" پیاده می‌کنیم، به‌علاوه‌ی
+// نگه‌داشتن رمز عبور از هر طرفی که رمز داشته و طرف دیگه نداره.
+// قبلاً اینجا merge واقعی نبود — remote کورکورانه جای local می‌نشست، برای همین
+// اضافه‌کردن/حذف ویزیتور که هنوز روی Firebase ننشسته بود، با اولین sync
+// (چه آپلود چه دانلود) از بین می‌رفت.
+function mergeVisitors(localArr,remoteArr){
+  var result=[];
+  var seen={};
+  (remoteArr||[]).forEach(function(r){
+    if(!r)return;
+    if(typeof r==="string")r={name:r,password:""};
+    if(!r.name)return;
+    result.push(r);seen[r.name]=result.length-1;
+  });
+  (localArr||[]).forEach(function(l){
+    if(!l||!l.name)return;
+    var key=l.name;
+    if(seen[key]!==undefined){
+      var existing=result[seen[key]];
+      var lTime=_toMs(l.updatedAt||l.createdAt);
+      var rTime=_toMs(existing.updatedAt||existing.createdAt);
+      if(lTime>=rTime){
+        if(!l.password&&existing.password)l.password=existing.password;
+        result[seen[key]]=l;
+      }else{
+        if(!existing.password&&l.password)existing.password=l.password;
+      }
+    }else{
+      result.push(l);seen[key]=result.length-1;
+    }
+  });
   var THIRTY_DAYS=30*24*60*60*1000;
   var now=Date.now();
   result=result.filter(function(x){
@@ -3774,15 +3838,7 @@ function uploadMeta(s,doneCb){
     got=true;
     clearTimeout(timeoutId);
     if(remote){
-      if(remote.visitors){
-        var rv=remote.visitors;
-        rv.forEach(function(v,i){if(typeof v==="string")rv[i]={name:v,password:""}});
-        APP.visitors=rv.map(function(r){
-          var lv=APP.visitors.find(function(x){return x.name===r.name});
-          if(lv&&lv.password&&!r.password)r.password=lv.password;
-          return r;
-        });
-      }
+      if(remote.visitors) APP.visitors = mergeVisitors(APP.visitors, remote.visitors);
       if(remote.visits)    APP.visits    = mergeById(APP.visits,   remote.visits);
       if(remote.customers) APP.customers = mergeById(APP.customers,remote.customers);
       if(remote.orders)    APP.orders    = mergeById(APP.orders,   remote.orders);
@@ -3816,16 +3872,7 @@ function downloadMeta(s){
   }
   fbGet("meta",function(d){
     if(d){
-      if(d.visitors){
-        var rv=d.visitors;
-        rv.forEach(function(v,i){if(typeof v==="string")rv[i]={name:v,password:""}});
-        // ویزیتورها: مدیر مرجع است → remote جایگزین، ولی رمز local حفظ میشه
-        APP.visitors=rv.map(function(r){
-          var lv=APP.visitors.find(function(x){return x.name===r.name});
-          if(lv&&lv.password&&!r.password)r.password=lv.password;
-          return r;
-        });
-      }
+      if(d.visitors) APP.visitors = mergeVisitors(APP.visitors, d.visitors);
       var hadNewLocal=false;
       function checkNew(localArr,remoteArr){
         if(!remoteArr)return false;
@@ -3951,13 +3998,7 @@ function applyRemoteMeta(d){
   if(_uploadMetaInFlight) return;
   var changed = false;
   if(d.visitors){
-    var rv = d.visitors;
-    rv.forEach(function(v,i){ if(typeof v==="string") rv[i]={name:v,password:""}; });
-    APP.visitors = rv.map(function(r){
-      var lv = APP.visitors.find(function(x){ return x.name===r.name; });
-      if(lv && lv.password && !r.password) r.password = lv.password;
-      return r;
-    });
+    APP.visitors = mergeVisitors(APP.visitors, d.visitors);
     changed = true;
   }
   if(d.visits)    APP.visits    = mergeById(APP.visits,    d.visits);
