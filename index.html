@@ -3391,7 +3391,7 @@ function logSync(m){
 
 // ── Firebase REST helper با retry خودکار ──────────────────────────────────────
 function fbUrl(path){
-  return CFG.fbDbUrl+"/"+path+".json?auth="+CFG.fbApiKey;
+  return CFG.fbDbUrl+"/"+path+".json";
 }
 
 function fbGet(path,cb){
@@ -3470,7 +3470,7 @@ function scheduleSyncRetry(){
       logSync("⏳ آفلاین — صبر...");
       return;
     }
-    fetch(CFG.fbDbUrl+"/.json?auth="+CFG.fbApiKey+"&shallow=true")
+    fetch(CFG.fbDbUrl+"/.json?shallow=true")
       .then(function(r){
         if(!r.ok) throw 0;
         _fbReachable=true;
@@ -3518,7 +3518,7 @@ function checkPendingOnStartup(){
   updateSyncBadge(true);
   logSync("⏳ تغییرات ارسال‌نشده موجوده — download بلاک شد تا ارسال بشه");
   setTimeout(function(){
-    fetch(CFG.fbDbUrl+"/.json?auth="+CFG.fbApiKey+"&shallow=true")
+    fetch(CFG.fbDbUrl+"/.json?shallow=true")
       .then(function(r){
         if(!r.ok) throw 0;
         _fbReachable=true;
@@ -3699,7 +3699,7 @@ function fbListen(path, onChange){
       try{_fbListeners[path].close();}catch(e){}
     }
 
-    var url = CFG.fbDbUrl + "/" + path + ".json?auth=" + CFG.fbApiKey;
+    var url = CFG.fbDbUrl + "/" + path + ".json";
     var es  = new EventSource(url);
 
     es.addEventListener("put", function(e){
@@ -3799,7 +3799,7 @@ window.addEventListener("online", function(){
   logSync("🌐 اینترنت وصل شد");
   // تست Firebase — اگه VPN هم وصل باشه، flush کن
   setTimeout(function(){
-    fetch(CFG.fbDbUrl+"/.json?auth="+CFG.fbApiKey+"&shallow=true")
+    fetch(CFG.fbDbUrl+"/.json?shallow=true")
       .then(function(r){
         if(!r.ok) throw 0;
         _fbReachable=true;
